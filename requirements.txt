@@ -1,0 +1,26 @@
+# 음성 인식 (CTranslate2 기반 Whisper)
+faster-whisper>=1.2
+# Windows에서 CTranslate2가 사용할 CUDA 라이브러리 (cuBLAS / cuDNN 9)
+nvidia-cublas-cu12
+nvidia-cudnn-cu12==9.*
+
+# 번역 (OpenAI) / .env 로드
+openai>=3.31
+python-dotenv
+
+# 오디오 캡처 (WASAPI loopback) / 리샘플링
+PyAudioWPatch
+soxr
+numpy
+
+# OBS 오버레이 서버
+aiohttp
+
+# 번체 -> 간체 정규화 / 중국어 단어 경계 (문장 자르기)
+opencc-python-reimplemented
+jieba
+# 발음이 같은 용어 찾기 (음성 인식이 같은 소리의 다른 글자로 적은 이름: 斗音 -> 抖音)
+pypinyin
+
+# 터미널 대시보드 화면 (run.bat 기본 화면)
+textual>=8

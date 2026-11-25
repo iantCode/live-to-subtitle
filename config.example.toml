@@ -1,0 +1,93 @@
+# Live to Subtitle 설정 파일
+# setup.bat 이 이 파일을 config.toml 로 복사합니다. config.toml 을 수정하세요.
+
+[audio]
+# loopback : PC에서 재생 중인 소리 (방송을 PC로 틀어놓고 듣는 경우)
+# input    : 마이크 / 라인 입력 / 가상 오디오 케이블
+# file     : 테스트용 오디오·영상 파일
+source = "loopback"
+# 장치 이름 일부 (비우면 기본 장치). 목록은 run.bat --list-devices
+device = ""
+# source = "file" 일 때 사용
+file = ""
+# 파일을 실제 재생 속도로 흘려보낼지 (false 면 최대 속도)
+file_realtime = true
+
+[asr]
+# large-v3-turbo : 빠르고 정확 (권장) / large-v3 : 더 정확하지만 느림
+model = "large-v3-turbo"
+device = "cuda"
+compute_type = "float16"
+language = "zh"
+beam_size = 1
+# 모델 다운로드 위치 (프로젝트 폴더 기준)
+download_root = "models"
+# Whisper 에게 주는 힌트. 간체 + 문장부호를 유도해 문장 자르기를 돕습니다.
+initial_prompt = "以下是普通话直播的内容，使用简体中文和标点符号。"
+# 번체로 인식된 글자를 간체로 통일
+to_simplified = true
+# 자주 나오는 고유 용어 (공백으로 구분). Whisper 가 비슷한 소리의 엉뚱한 글자로 적는 것을 막아줌.
+# 너무 많이 넣으면 목록을 그대로 받아 적는 환각이 늘어나니 10개 안팎으로. 예: "抖音 直播间 弹幕"
+hotwords = ""
+# 음성 인식이 반복해서 잘못 적는 말 교정표. 한 줄에 '틀린 글자 = 맞는 글자' ('#' 줄은 메모).
+# 화면·번역·다음 인식 문맥에 모두 적용됨. jieba 단어 경계에서만 바꿈 (生活属性 안의 活属性 은 그대로).
+corrections = """
+"""
+
+[segment]
+# 몇 초마다 다시 인식할지 (작을수록 빠르지만 GPU 사용량 증가)
+step_sec = 0.4
+# 이 시간 이상 말이 끊기면 지금까지의 문장을 확정
+silence_commit_sec = 0.6
+# 자막 한 줄 최소 / 권장 최대 / 강제 최대 글자 수 (문장부호 제외)
+# 줄이 짧을수록 방송 지연을 짧게 잡을 수 있지만 문장이 잘려 번역 정확도가 떨어짐 (README '자막을 말에 맞추기')
+#   방송 지연 10초 (기본): 18 / 30 / 9.0      지연 6~7초: 15 / 24 / 6.0
+min_chars = 6
+soft_max_chars = 18
+max_chars = 30
+# 끊김 없이 이 시간 이상 이어지면 강제로 자름
+max_sec = 9.0
+# 쉼표나 이 시간 이상의 짧은 쉼이 있는 지점은, 말해진 지 clause_wait_sec 이 지나면 확정
+# (clause_wait_sec 를 줄이면 자막이 빨라지지만 줄이 짧아짐)
+pause_gap_sec = 0.25
+clause_wait_sec = 0.7
+# Silero VAD 음성 판정 임계값 (배경음악이 크면 0.6 정도로 올리세요)
+vad_threshold = 0.5
+
+[translate]
+# OpenAI 번역 모델. API 키는 프로젝트 폴더의 .env 에  OPENAI_API_KEY=sk-...
+# gpt-6.1-terra 로 바꾸면 정확도가 약 8점 오르지만 요금이 더 비쌈 (README '번역 모델')
+model = "gpt-6-luna"
+# 추론 강도: none / low / medium / high ... (none 이 가장 빠름, 실시간 자막에 권장)
+effort = "none"
+# 번역 때 참고할 직전 문장 수
+context_segments = 4
+# 문장이 끝나기 전에 임시 번역을 미리 만들지. 오버레이는 확정 번역만 표시하므로 끄면 API 호출이 약 절반으로 줄어듦
+# (로그 화면 /log 에서 임시 번역을 보고 싶을 때만 켜세요)
+draft = false
+draft_interval_sec = 1.2
+draft_min_chars = 8
+# 말하는 도중 임시 번역에 쓸 모델 (비우면 model 과 같음). model 을 terra 로 바꿀 때 여기를 luna 로 두면 첫 자막이 빠름
+draft_model = ""
+# 방송 성격·말투 지시 (예: "게임 방송. 친근한 반말 톤")
+style = ""
+# 고유명사 / 용어집. 한 줄에 하나씩  중국어 = 한국어
+glossary = """
+"""
+# 게임 용어집 파일 (CN<탭>KR). 번역할 문장에 나온 용어만 골라 모델에 알려줌.
+# 형식은 glossary/example.tsv 참고 (중국어<TAB>한국어<TAB>분류). 분류가 name 이면 2글자 이름도 발음으로 찾음
+glossary_file = ""
+# 음성 인식이 같은 소리의 다른 글자로 적은 용어(斗音 -> 抖音)를 병음으로 찾아 번역 모델에 알려줄지
+sound_alike = true
+# [server] delay 를 쓸 때, 자막이 뜨기 직전에 그 사이 들린 다음 말을 참고해 다시 번역 (정확도 약 +4점, API 호출 약 2배)
+refine = true
+
+[server]
+host = "127.0.0.1"
+port = 8765
+# OBS '텍스트(GDI+)' 소스로 쓰고 싶을 때 최근 자막을 기록할 파일 (비우면 사용 안 함)
+text_file = ""
+text_file_lines = 2
+# OBS 에서 중국어 방송 화면·소리를 늦춘 초 (0 = 늦추지 않음). 오버레이가 자막을 말 시작에 맞춰 띄우고,
+# 그 사이 다음 말을 참고해 번역을 다듬습니다. OBS 의 영상 지연·싱크 오프셋도 같은 초로 (README '자막을 말에 맞추기')
+delay = 0

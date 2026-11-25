@@ -1,0 +1,244 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>Live Subtitles</title>
+<link rel="preconnect" href="https://cdn.jsdelivr.net">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+<!--
+  OBS 브라우저 소스용 자막 오버레이. 확정된 번역만, 한 번에 한 줄만 표시합니다 (새 자막이 뜨면 이전 자막은 사라짐).
+  URL 파라미터로 모양을 조절합니다.
+    style=box      box: 반투명 검은 상자 (기본) / outline: 검은 테두리 글자 / clean: 그림자만
+    size=46        글자 크기(px). 1080p 방송 기준 42~52 권장
+    hold=7         마지막 갱신 후 몇 초 뒤 사라질지
+    delay=0        OBS 에서 방송 화면·소리를 늦춘 초 (자막을 말 시작에 맞춤)
+    zh=0           1 이면 한국어 아래에 중국어 원문도 표시
+    pos=bottom     bottom / top
+    color=ffffff   글자 색 (# 없이)
+    opacity=0.72   style=box 의 상자 진하기 (0~1)
+    font=          글꼴 이름 (기본: Pretendard)
+    demo=1         프로그램 없이 예시 자막을 반복 재생 (모양 확인용)
+  예) http://127.0.0.1:8765/?size=48&style=outline
+
+  OBS 내장 브라우저는 버전이 오래된 경우가 많아, 최신 CSS(text-stroke 의 paint-order, color-mix 등)는 쓰지 않는다.
+  테두리는 text-shadow 를 여러 방향으로 겹쳐 만든다 (어느 버전에서나 같은 모양).
+-->
+<style>
+  :root {
+    --size: 46px;
+    --color: #ffffff;
+    --zh-color: #e4e4e4;
+    --edge: #000000;
+    --box-alpha: 0.72;
+    --font: "Pretendard Variable", Pretendard, "Noto Sans KR", "Malgun Gothic", sans-serif;
+  }
+  html, body {
+    margin: 0;
+    height: 100%;
+    background: transparent;
+    overflow: hidden;
+  }
+  #subs {
+    position: absolute;
+    left: 6%;
+    right: 6%;
+    bottom: 7%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: calc(var(--size) * 0.2);
+  }
+  #subs.top { bottom: auto; top: 7%; }
+
+  .line {
+    max-width: 100%;
+    text-align: center;
+    font-family: var(--font);
+    font-size: var(--size);
+    font-weight: 700;
+    line-height: 1.34;
+    letter-spacing: -0.01em;
+    color: var(--color);
+    word-break: keep-all;
+    overflow-wrap: anywhere;
+    transition: opacity 0.22s ease, transform 0.22s ease;
+  }
+  .ko, .zh { display: block; }
+  .zh {
+    margin-top: 0.1em;
+    font-family: "Microsoft YaHei", "PingFang SC", "Noto Sans SC", var(--font);
+    font-size: 0.56em;
+    font-weight: 600;
+    letter-spacing: 0;
+    color: var(--zh-color);
+  }
+
+  /* box (기본): 반투명 검은 상자. 밝은 화면·어두운 화면 어디서나 같은 대비 */
+  .box .line {
+    padding: 0.14em 0.6em 0.18em;
+    border-radius: 0.28em;
+    background: rgba(0, 0, 0, var(--box-alpha));
+  }
+
+  /* outline: 검은 테두리 글자. text-shadow 8방향 + 아래쪽 부드러운 그림자 */
+  .outline .line {
+    text-shadow:
+      -0.045em -0.045em 0 var(--edge), 0.045em -0.045em 0 var(--edge),
+      -0.045em 0.045em 0 var(--edge), 0.045em 0.045em 0 var(--edge),
+      0 -0.06em 0 var(--edge), 0 0.06em 0 var(--edge),
+      -0.06em 0 0 var(--edge), 0.06em 0 0 var(--edge),
+      0 0.08em 0.22em rgba(0, 0, 0, 0.65);
+  }
+
+  /* clean: 테두리 없이 그림자만 */
+  .clean .line {
+    text-shadow:
+      0 0 0.06em rgba(0, 0, 0, 1),
+      0 0 0.14em rgba(0, 0, 0, 0.9),
+      0 0.05em 0.3em rgba(0, 0, 0, 0.8);
+  }
+
+  /* 등장: 살짝 아래에서 올라오며 나타남. 사라질 때는 겹치지 않도록 바로 치움 */
+  .line.enter { opacity: 0; transform: translateY(0.25em); }
+  .line.leaving { opacity: 0; }
+</style>
+</head>
+<body>
+<div id="subs"></div>
+<script>
+(() => {
+  const q = new URLSearchParams(location.search);
+  const HOLD = parseFloat(q.get("hold") || "7") * 1000;
+  const SHOW_ZH = q.get("zh") === "1";
+  // OBS 에서 방송 화면·소리를 늦춘 초. 자막을 "말이 시작된 시각 + delay" 까지 붙잡아 두었다가 띄워 말과 맞춤.
+  // URL 에 없으면 config.toml 의 [server] delay 를 씀
+  let DELAY = q.has("delay") ? parseFloat(q.get("delay")) : 0;
+  let skew = 0;  // 이 브라우저 시계 - 서버 시계 (초)
+  const root = document.documentElement;
+  if (q.get("size")) root.style.setProperty("--size", q.get("size") + "px");
+  if (q.get("color")) root.style.setProperty("--color", "#" + q.get("color"));
+  if (q.get("opacity")) root.style.setProperty("--box-alpha", q.get("opacity"));
+  if (q.get("font")) root.style.setProperty("--font", `"${q.get("font")}", "Pretendard Variable", "Malgun Gothic", sans-serif`);
+  const box = document.getElementById("subs");
+  const STYLE = q.get("bg") === "1" ? "box" : (q.get("style") || "box");
+  box.classList.add(["outline", "box", "clean"].includes(STYLE) ? STYLE : "box");
+  if (q.get("pos") === "top") box.classList.add("top");
+
+  const segs = new Map();   // id -> {zh, ko, state, ko_draft, seen}
+  const els = new Map();    // id -> element
+
+  // 이 자막을 띄울 시각 (ms). delay 를 안 쓰거나 말 시작 시각을 모르면 0 (바로 표시)
+  function due(s) {
+    return DELAY > 0 && s.spoken_at ? (s.spoken_at + skew + DELAY) * 1000 : 0;
+  }
+
+  function visibleIds(now) {
+    const ids = [...segs.keys()].sort((a, b) => a - b);
+    const shown = ids.filter((id) => {
+      const s = segs.get(id);
+      const d = due(s);
+      if (now < d) return false;
+      if (now - Math.max(s.seen, d) > HOLD) return false;
+      // 확정된 번역만 (말하는 도중의 임시 번역·스트리밍 중인 번역은 표시하지 않음).
+      // 번역이 실패한 줄은 중국어 원문을 표시
+      return s.state === "done" && !s.ko_draft && !!(s.ko || s.zh);
+    });
+    return shown.slice(-1);
+  }
+
+  function render() {
+    const ids = visibleIds(Date.now());
+    for (const [id, el] of els) {
+      if (ids.includes(id)) continue;
+      els.delete(id);
+      if (ids.length === 0) {
+        // 화면이 비게 되는 경우(시간이 지나 사라짐)만 천천히 흐려지게
+        el.classList.add("leaving");
+        setTimeout(() => el.remove(), 250);
+      } else {
+        el.remove();  // 새 줄로 바뀌는 경우: 겹치지 않도록 바로 치움
+      }
+    }
+    for (const id of ids) {
+      const s = segs.get(id);
+      let el = els.get(id);
+      if (!el) {
+        for (const old of box.querySelectorAll(".leaving")) old.remove();
+        el = document.createElement("div");
+        el.className = "line enter";
+        el.innerHTML = '<span class="ko"></span><span class="zh"></span>';
+        box.appendChild(el);
+        els.set(id, el);
+        requestAnimationFrame(() => requestAnimationFrame(() => el.classList.remove("enter")));
+        // 글자는 처음 뜰 때 한 번만 넣음: 화면에 뜬 자막은 바뀌지 않음
+        el.querySelector(".ko").textContent = s.ko || s.zh;
+        const zh = el.querySelector(".zh");
+        zh.textContent = SHOW_ZH && s.ko ? s.zh : "";
+        zh.style.display = zh.textContent ? "block" : "none";
+      }
+    }
+  }
+
+  function receive(m) {
+    const prev = segs.get(m.id);
+    const changed = !prev || prev.ko !== m.ko || prev.zh !== m.zh || prev.state !== m.state;
+    // 서버 시계 대신 받은 시각 기준 (재접속 시 과거 자막이 되살아나지 않도록 updated 도 반영)
+    // (서버 시계 기준 updated 를 이 브라우저 시계로 바꿔서 비교: OBS 가 다른 PC 여도 시계 차이에 영향받지 않게)
+    const age = m.updated ? Math.max(0, Date.now() / 1000 - (m.updated + skew)) * 1000 : 0;
+    m.seen = changed ? Date.now() - age : prev.seen;
+    segs.set(m.id, m);
+    for (const id of [...segs.keys()].sort((a, b) => a - b).slice(0, -50)) segs.delete(id);
+    render();
+    const wait = due(m) - Date.now();
+    if (wait > 0) setTimeout(render, wait + 10);
+  }
+
+  let session = null;
+
+  function connect() {
+    const ws = new WebSocket(`ws://${location.host}/ws`);
+    ws.onmessage = (ev) => {
+      const m = JSON.parse(ev.data);
+      if (m.t === "hello") {
+        // 프로그램을 다시 켜면 자막 번호가 1부터 다시 시작하므로 이전 실행의 자막을 비움
+        if (session !== null && session !== m.session) {
+          segs.clear();
+          for (const el of els.values()) el.remove();
+          els.clear();
+        }
+        session = m.session;
+        if (!q.has("delay") && typeof m.delay === "number") DELAY = m.delay;
+        if (m.now) skew = Date.now() / 1000 - m.now;
+        return;
+      }
+      if (m.t === "seg") receive(m);
+    };
+    ws.onclose = () => setTimeout(connect, 1000);
+    ws.onerror = () => ws.close();
+  }
+
+  // demo=1: 예시 자막을 반복 재생 (임시 번역은 표시되지 않고 확정 번역이 뜸)
+  function demo() {
+    const lines = [
+      ["오늘은 새로 나온 지역을", "오늘은 새로 나온 지역을 같이 둘러보려고 해요.", "今天我们一起来逛一下新出的地图。"],
+      ["이번 업데이트에서는", "이번 업데이트에서는 보스 난이도가 조금 낮아졌어요.", "这次更新把boss的难度稍微降低了一点。"],
+      ["채팅에서 많이 물어보셨는데", "채팅에서 많이 물어보셨는데, 다음 주에 다시 방송할게요.", "很多人在弹幕里问，我们下周还会再开播。"],
+      ["음악은 처음부터", "음악은 처음부터 이 장면에 맞춰서 따로 만들었어요.", "音乐是一开始就专门为这个场景做的。"],
+    ];
+    let id = 0;
+    const step = () => {
+      const [draft, final, zh] = lines[id % lines.length];
+      const cur = ++id;
+      receive({ id: cur, zh, ko: draft, state: "live", ko_draft: true });
+      setTimeout(() => receive({ id: cur, zh, ko: final, state: "done", ko_draft: false }), 1200);
+    };
+    step();
+    setInterval(step, 3500);
+  }
+
+  setInterval(render, 500);
+  if (q.get("demo") === "1") demo(); else connect();
+})();
+</script>
+</body>
+</html>

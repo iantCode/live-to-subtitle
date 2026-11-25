@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>자막 미리보기</title>
+<style>
+  /* color-scheme 을 지정하면 오버레이 iframe 배경이 불투명해지므로 지정하지 않음 */
+  body { margin: 0; padding: 20px 16px 40px; background: #101114; color: #e8e8ea;
+         font-family: "Pretendard Variable", "Malgun Gothic", sans-serif; }
+  h1 { font-size: 20px; margin: 0 0 6px; }
+  p { margin: 0 0 18px; color: #a9abb2; font-size: 14px; line-height: 1.6; }
+  code { background: #1d1f25; padding: 2px 6px; border-radius: 4px; color: #e8e8ea; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 640px), 1fr)); gap: 22px; }
+  .card h2 { font-size: 15px; margin: 0 0 8px; font-weight: 600; }
+  .card .url { font-size: 12px; color: #a9abb2; margin-top: 6px; word-break: break-all; }
+  /* 1920x1080 오버레이를 카드 너비에 맞게 줄여서 보여줌 (왼쪽 밝은 화면 / 오른쪽 어두운 화면) */
+  .stage { position: relative; width: 100%; aspect-ratio: 16 / 9; overflow: hidden; border-radius: 8px;
+           background: linear-gradient(90deg, #efe9dc 0 50%, #1b1d22 50% 100%); }
+  .stage::before { content: ""; position: absolute; inset: 0;
+           background: radial-gradient(circle at 25% 35%, #9fc3e6 0 12%, transparent 13%),
+                       radial-gradient(circle at 78% 40%, #3a5c45 0 14%, transparent 15%); }
+  .stage iframe { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; border: 0;
+                  transform-origin: 0 0; background: transparent; }
+</style>
+</head>
+<body>
+<h1>자막 모양 미리보기</h1>
+<p>확정된 번역만 한 줄씩 표시되는 예시가 반복 재생됩니다. 왼쪽은 밝은 화면, 오른쪽은 어두운 화면입니다.<br>
+마음에 드는 모양의 주소를 OBS 브라우저 소스 URL 로 쓰세요. 지연(<code>delay</code>)은 <code>config.toml</code> 의 값을 자동으로 씁니다.</p>
+<div class="grid" id="grid"></div>
+<script>
+  const variants = [
+    ["반투명 상자 (기본)", "style=box"],
+    ["반투명 상자 · 진하게", "style=box&opacity=0.88"],
+    ["테두리 글자", "style=outline"],
+    ["그림자만", "style=clean"],
+    ["중국어 원문 함께", "style=box&zh=1"],
+    ["노란 글자 테두리", "style=outline&color=ffe066"],
+  ];
+  const grid = document.getElementById("grid");
+  for (const [name, params] of variants) {
+    const card = document.createElement("div");
+    card.className = "card";
+    card.innerHTML = `<h2>${name}</h2><div class="stage"><iframe src="/?${params}&demo=1" scrolling="no"></iframe></div>
+      <div class="url">${location.origin}/?${params}</div>`;
+    grid.appendChild(card);
+  }
+  const fit = () => document.querySelectorAll(".stage").forEach((st) => {
+    st.querySelector("iframe").style.transform = `scale(${st.clientWidth / 1920})`;
+  });
+  window.addEventListener("resize", fit);
+  fit();
+</script>
+</body>
+</html>

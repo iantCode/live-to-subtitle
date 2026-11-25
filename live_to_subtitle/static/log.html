@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Subtitle Monitor</title>
+<style>
+  :root {
+    --bg: #f7f7f5; --fg: #1d1d1b; --muted: #6b6b66; --line: #e2e2dd;
+    --live: #b45309; --draft: #2563eb; --done: #15803d;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #161615; --fg: #ececea; --muted: #9a9a94; --line: #2c2c2a;
+            --live: #f59e0b; --draft: #60a5fa; --done: #4ade80; }
+  }
+  body { margin: 0; background: var(--bg); color: var(--fg);
+         font: 15px/1.5 "Malgun Gothic", system-ui, sans-serif; }
+  header { position: sticky; top: 0; background: var(--bg); border-bottom: 1px solid var(--line);
+           padding: 10px 16px; display: flex; gap: 12px; align-items: center; }
+  header h1 { font-size: 16px; margin: 0; }
+  #status { color: var(--muted); font-size: 13px; }
+  #list { padding: 8px 16px 40px; }
+  .row { display: grid; grid-template-columns: 44px 1fr; gap: 4px 12px;
+         padding: 8px 0; border-bottom: 1px solid var(--line); }
+  .id { color: var(--muted); font-variant-numeric: tabular-nums; font-size: 13px; }
+  .zh { color: var(--muted); }
+  .ko { grid-column: 2; font-weight: 600; }
+  .tag { font-size: 11px; margin-left: 6px; }
+  .live .tag { color: var(--live); } .final .tag, .draft .tag { color: var(--draft); }
+  .done .tag { color: var(--done); } .skip { opacity: .5; }
+  .restart { color: var(--muted); text-align: center; font-size: 13px; padding: 10px 0; }
+</style>
+</head>
+<body>
+<header><h1>자막 모니터</h1><span id="status">연결 중…</span></header>
+<div id="list"></div>
+<script>
+(() => {
+  const list = document.getElementById("list");
+  const status = document.getElementById("status");
+  const rows = new Map();
+  const LABEL = { live: "인식 중", final: "번역 중", done: "완료", skip: "건너뜀" };
+
+  function upsert(s) {
+    let row = rows.get(s.id);
+    if (!row) {
+      row = document.createElement("div");
+      row.innerHTML = '<span class="id"></span><span class="zh"></span><span class="ko"></span>';
+      const after = [...rows.keys()].filter((k) => k > s.id).sort((a, b) => a - b)[0];
+      list.insertBefore(row, after !== undefined ? rows.get(after) : null);
+      rows.set(s.id, row);
+    }
+    row.className = "row " + s.state + (s.ko_draft ? " draft" : "");
+    row.querySelector(".id").textContent = "#" + s.id;
+    const zh = row.querySelector(".zh");
+    zh.textContent = s.zh || "…";
+    const tag = document.createElement("span");
+    tag.className = "tag";
+    tag.textContent = (s.ko_draft && s.state !== "done") ? "초안" : LABEL[s.state];
+    zh.appendChild(tag);
+    row.querySelector(".ko").textContent = s.ko;
+    const nearBottom = innerHeight + scrollY >= document.body.scrollHeight - 80;
+    if (nearBottom) scrollTo(0, document.body.scrollHeight);
+  }
+
+  const MAX_ROWS = 500;  // 몇 시간 켜 둬도 페이지가 무거워지지 않도록
+  let session = null;
+
+  function connect() {
+    const ws = new WebSocket(`ws://${location.host}/ws`);
+    ws.onopen = () => (status.textContent = "연결됨");
+    ws.onmessage = (ev) => {
+      const m = JSON.parse(ev.data);
+      if (m.t === "hello") {
+        // 프로그램을 다시 켜면 번호가 1부터 다시 시작: 이전 실행 기록은 구분선 위로 남기고 새로 시작
+        if (session !== null && session !== m.session) {
+          rows.clear();
+          const hr = document.createElement("div");
+          hr.className = "restart";
+          hr.textContent = "— 프로그램 다시 시작 —";
+          list.appendChild(hr);
+        }
+        session = m.session;
+        return;
+      }
+      if (m.t !== "seg") return;
+      upsert(m);
+      while (list.children.length > MAX_ROWS) {
+        const first = list.firstElementChild;
+        for (const [id, row] of rows) if (row === first) rows.delete(id);
+        first.remove();
+      }
+    };
+    ws.onclose = () => { status.textContent = "끊김 — 재연결 중…"; setTimeout(connect, 1000); };
+    ws.onerror = () => ws.close();
+  }
+  connect();
+})();
+</script>
+</body>
+</html>

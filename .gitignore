@@ -1,0 +1,23 @@
+# 비밀 값 (OpenAI API 키 등)
+.env
+
+# 가상환경 / 캐시 / 내려받은 Whisper 모델
+.venv/
+__pycache__/
+*.pyc
+models/
+
+# 개인 설정 (config.example.toml 을 복사해서 씀)
+config.toml
+
+# 특정 방송 전용 파일은 로컬에만 둠 (공개 저장소에는 예시 용어집만)
+glossary/*
+!glossary/example.tsv
+tools/build_glossary.py
+local/
+
+# 백업 / 도구 설정 / 실행 중 만들어지는 파일
+speechtosub_backup_*/
+.claude/
+*.log
+*.tmp
